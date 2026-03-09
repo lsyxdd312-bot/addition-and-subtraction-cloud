@@ -17,6 +17,7 @@
         .header-info div { background-color: #e3f2fd; padding: 10px 15px; border-radius: 10px; }
         #problem-container { margin-bottom: 25px; font-size: 2.5rem; font-weight: bold; display: flex; justify-content: center; align-items: center; flex-wrap: wrap; min-height: 80px; }
         select { font-size: 1.2rem; margin: 8px 10px; border-radius: 5px; border: 2px solid #0288d1; font-family: inherit; padding: 8px; }
+        #problem-container select { font-size: 2rem; min-width: 60px; padding: 5px; }
         .section-divider { border: 0; height: 2px; background-color: #eeeeee; margin: 25px 0; }
         #leaderboard { margin-top: 20px; text-align: left; max-height: 300px; overflow-y: auto; }
         #leaderboard table { width: 100%; border-collapse: collapse; }
@@ -29,6 +30,11 @@
         .difficulty-buttons .level-2 { background-color: #ff9800; }
         .difficulty-buttons .level-3 { background-color: #f44336; }
         #final-score-message { font-size: 2rem; font-weight: bold; margin: 20px 0; color: #d32f2f; }
+        .skills-panel { position: absolute; top: 0; right: -140px; width: 120px; display: flex; flex-direction: column; }
+        .skill-button { font-size: 1rem; padding: 8px 12px; width: 100%; background-color: #9c27b0; color: white; }
+        #pause-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; color: white; font-size: 3rem; font-weight: bold; z-index: 10; border-radius: 15px;}
+        #combo-display { position: absolute; top: 40%; left: 50%; transform: translateX(-50%); font-size: 4rem; font-weight: bold; color: #ff5722; text-shadow: 2px 2px 5px rgba(0,0,0,0.3); opacity: 0; pointer-events: none; animation: combo-animation 1s ease-out; }
+        @keyframes combo-animation { 0% { opacity: 1; transform: translateX(-50%) scale(0.5); } 80% { opacity: 1; transform: translateX(-50%) scale(1.2); } 100% { opacity: 0; transform: translateX(-50%) scale(1.2); } }
     </style>
 </head>
 <body>
@@ -41,9 +47,23 @@
         <div id="difficulty-section" class="difficulty-buttons"><h2>第二步：選擇難度開始遊戲</h2><button class="button level-1" onclick="startGame(1)">難度一</button><button class="button level-2" onclick="startGame(2)">難度二</button><button class="button level-3" onclick="startGame(3)">難度三</button></div>
         <hr class="section-divider"><div id="leaderboard-section"><h2>雲端積分排行榜</h2><div id="leaderboard"><p>正在從雲端載入排行榜...</p></div></div>
     </div>
-    <div id="game-interface" class="hidden"></div>
-    <div id="game-over-screen" class="hidden"></div>
+
+    <div id="game-interface" class="hidden">
+        <div class="skills-panel"><button id="pause-button" class="button skill-button" onclick="togglePause()">⏸️ 時間暫停</button><button id="skip-button" class="button skill-button" onclick="skipQuestion()">⏩ 跳過此題</button></div>
+        <div class="header-info"><div id="score-display">分數: 0</div><div id="timer-display">時間: 60</div></div>
+        <div id="problem-container"></div>
+        <div id="feedback"></div><div id="combo-display"></div>
+        <button id="check-button" class="button">檢查答案</button>
+        <div id="pause-overlay" class="hidden">遊戲已暫停</div>
+    </div>
+    
+    <div id="game-over-screen" class="hidden">
+        <h2>時間到！遊戲結束！</h2>
+        <div id="final-score-message"></div>
+        <p class="instructions" style="margin-top: 20px;">正在自動記錄分數並返回主選單...</p>
+    </div>
 </div>
+
 <div class="designer-credit">Designed by Miss Lui SY</div>
 <audio id="sound-correct" src="correct.mp3" preload="auto"></audio><audio id="sound-wrong" src="wrong.mp3" preload="auto"></audio><audio id="sound-click" src="click.mp3" preload="auto"></audio>
 
@@ -54,26 +74,26 @@
     // --- DOM 元素 ---
     const mainMenuScreen = document.getElementById('main-menu-screen'), gameInterface = document.getElementById('game-interface'), gameOverScreen = document.getElementById('game-over-screen');
     const classSelect = document.getElementById('class-select'), studentIdSelect = document.getElementById('student-id-select');
-    
+    const checkButton = document.getElementById('check-button'), scoreDisplay = document.getElementById('score-display'), timerDisplay = document.getElementById('timer-display');
+    const problemContainer = document.getElementById('problem-container'), feedback = document.getElementById('feedback'), finalScoreMessage = document.getElementById('final-score-message');
+    const comboDisplay = document.getElementById('combo-display'), pauseOverlay = document.getElementById('pause-overlay');
+    const pauseButton = document.getElementById('pause-button'), skipButton = document.getElementById('skip-button');
+
     // --- 全域變數 ---
-    let score, currentPlayer = {};
+    let score, timer, timerInterval, consecutiveCorrect, gamePaused;
+    let canUseSkip, canUsePause;
+    let gameSettings = {}, currentPlayer = {}, currentProblemData;
 
-    // --- *** 雲端數據處理 (已重寫) *** ---
-
+    // --- 雲端數據處理 ---
     async function fetchLeaderboard() {
         const leaderboardDiv = document.getElementById('leaderboard');
         leaderboardDiv.innerHTML = '<p>正在從雲端載入排行榜...</p>';
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒超時
-
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
             const response = await fetch(SCRIPT_URL, { signal: controller.signal });
-            clearTimeout(timeoutId); // 成功取得回應，清除超時
-
-            if (!response.ok) {
-                // 如果伺服器回傳了錯誤狀態 (如 404, 500)
-                throw new Error(`伺服器回應錯誤: ${response.status}`);
-            }
+            clearTimeout(timeoutId);
+            if (!response.ok) throw new Error(`伺服器回應錯誤: ${response.status}`);
             const data = await response.json();
             displayLeaderboard(data);
         } catch (error) {
@@ -87,25 +107,12 @@
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 8000);
-            
-            // Apps Script 的 POST 請求在跨來源時比較特殊，我們用 fetch 發送，但不期待有意義的回傳值
-            await fetch(SCRIPT_URL, {
-                method: 'POST',
-                mode: 'no-cors',
-                body: JSON.stringify(data),
-                headers: { 'Content-Type': 'application/json' },
-                keepalive: true, // 確保頁面跳轉時請求能完成
-                signal: controller.signal
-            });
+            await fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' }, keepalive: true, signal: controller.signal });
             clearTimeout(timeoutId);
         } catch (error) {
             console.error('儲存分數請求發送失敗:', error);
         } finally {
-            // 無論儲存成功與否，都確保遊戲流程能繼續
-            setTimeout(() => {
-                fetchLeaderboard(); // 再次嘗試刷新排行榜
-                showScreen(mainMenuScreen);
-            }, 3000);
+            setTimeout(() => { fetchLeaderboard(); showScreen(mainMenuScreen); }, 3000);
         }
     }
 
@@ -127,30 +134,42 @@
     }
 
     // --- 遊戲主流程 ---
-
     function initialize() {
         const classes = ['3A', '3B', '3C', '3D', '3E'];
         classes.forEach(c => classSelect.innerHTML += `<option value="${c}">${c}</option>`);
         for (let i = 1; i <= 27; i++) studentIdSelect.innerHTML += `<option value="${i}">${i}號</option>`;
         document.querySelectorAll('.button').forEach(button => button.addEventListener('click', () => playSound('click')));
-        
-        // 關鍵修正：fetchLeaderboard 是 async，它會去執行，但不會阻塞下面的代碼
+        checkButton.addEventListener('click', checkAnswer);
         fetchLeaderboard(); 
-        
-        // 無論排行榜是否成功，都顯示主畫面，讓遊戲可以啟動
         showScreen(mainMenuScreen); 
     }
 
     function startGame(difficulty) {
         currentPlayer = { class: classSelect.value, studentId: studentIdSelect.value, id: `${classSelect.value}-${studentIdSelect.value}` };
-        // ... (將之前版本的 startGame 函數內容完整複製到此處)
-        score = 0; // ...
+        switch(difficulty) {
+            case 1: gameSettings = { maxNumber: 10, basePoints: 10 }; break;
+            case 2: gameSettings = { maxNumber: 20, basePoints: 15 }; break;
+            case 3: gameSettings = { maxNumber: 35, basePoints: 20 }; break;
+        }
+        score = 0; consecutiveCorrect = 0; timer = 60; gamePaused = false;
+        canUseSkip = true; canUsePause = true;
+        updateScoreDisplay(); timerDisplay.textContent = `時間: ${timer}`;
+        pauseButton.disabled = false; pauseButton.textContent = "⏸️ 時間暫停";
+        skipButton.disabled = false;
+        pauseOverlay.classList.add('hidden');
+        feedback.textContent = '';
+        comboDisplay.textContent = '';
         showScreen(gameInterface);
-        // ...
+        generateProblem();
+        if(timerInterval) clearInterval(timerInterval);
+        timerInterval = setInterval(() => { if (!gamePaused) { timer--; timerDisplay.textContent = `時間: ${timer}`; if (timer <= 0) endGame(); }}, 1000);
     }
 
     function endGame() {
-        // ... (將之前版本的 endGame 函數內容完整複製到此處)
+        clearInterval(timerInterval);
+        checkButton.disabled = true;
+        finalScoreMessage.textContent = `你的最終得分是: ${score}`;
+        showScreen(gameOverScreen);
         saveScoreToCloud();
     }
 
@@ -159,12 +178,64 @@
         if (screen) screen.classList.remove('hidden');
     }
 
-    function playSound(soundName) {
-        const sound = document.getElementById(`sound-${soundName}`);
-        if (sound) { sound.currentTime = 0; sound.play().catch(e => {}); }
+    // --- 遊戲核心邏輯 ---
+    function generateProblem() {
+        let problem = null, attemptCounter = 0;
+        while (problem === null && attemptCounter < 500) { problem = tryGenerateProblem(); attemptCounter++; }
+        if (!problem) { gameSettings.baseNumber = Math.floor(gameSettings.maxNumber / 2) + 1; problem = tryGenerateProblem(); delete gameSettings.baseNumber; }
+        currentProblemData = problem;
+        problemContainer.innerHTML = '';
+        problemContainer.appendChild(document.createTextNode(currentProblemData.displayParts[0]));
+        problemContainer.appendChild(createOperatorSelect());
+        problemContainer.appendChild(document.createTextNode(currentProblemData.displayParts[1]));
+        problemContainer.appendChild(createOperatorSelect());
+        problemContainer.appendChild(document.createTextNode(currentProblemData.displayParts[2]));
+        feedback.textContent = '';
+    }
+
+    function tryGenerateProblem() {
+        const { maxNumber } = gameSettings, baseNum = gameSettings.baseNumber || maxNumber, operators = ['+', '-'];
+        const num1 = Math.ceil(Math.random() * baseNum), num2 = Math.ceil(Math.random() * baseNum), num3 = Math.ceil(Math.random() * baseNum);
+        const op1 = operators[Math.floor(Math.random() * 2)], op2 = operators[Math.floor(Math.random() * 2)];
+        const useParentheses = Math.random() > 0.5;
+        let result, isValid = true, displayParts;
+        if (useParentheses) { let secondResult = eval(`${num2} ${op2} ${num3}`); if (secondResult < 0 || secondResult >= maxNumber) isValid = false; result = eval(`${num1} ${op1} ${secondResult}`); displayParts = [`${num1}`, `(${num2}`, `${num3}) = ${result}`]; } 
+        else { let firstResult = eval(`${num1} ${op1} ${num2}`); if (firstResult < 0 || firstResult >= maxNumber) isValid = false; result = eval(`${firstResult} ${op2} ${num3}`); displayParts = [`${num1}`, `${num2}`, `${num3} = ${result}`]; }
+        if (result < 0 || result >= maxNumber || !Number.isInteger(result)) isValid = false;
+        if (isValid) return { numbers: [num1, num2, num3], hasParentheses: useParentheses, expectedResult: result, displayParts: displayParts };
+        return null;
     }
     
-    // (請將您之前版本的所有其他遊戲邏輯函數，如 checkAnswer, generateProblem, togglePause, skipQuestion, updateScoreDisplay 等，完整複製貼到此處)
+    function checkAnswer() {
+        const selects = problemContainer.getElementsByTagName('select');
+        if (selects.length < 2) return;
+        const userOp1 = selects[0].value, userOp2 = selects[1].value;
+        if (userOp1 === "" || userOp2 === "") { feedback.style.color = '#f39c12'; feedback.textContent = '請填上所有運算符號！'; return; }
+        const [num1, num2, num3] = currentProblemData.numbers;
+        let calculatedResult = currentProblemData.hasParentheses ? eval(`${num1} ${userOp1} (${num2} ${userOp2} ${num3})`) : eval(`(${num1} ${userOp1} ${num2}) ${userOp2} ${num3}`);
+        if (calculatedResult === currentProblemData.expectedResult) {
+            playSound('correct');
+            consecutiveCorrect++;
+            const { basePoints } = gameSettings, bonusPoints = (consecutiveCorrect - 1) * 5, pointsGained = basePoints + bonusPoints;
+            score += pointsGained;
+            feedback.style.color = 'green'; feedback.textContent = `答對了！ +${pointsGained}分` + (bonusPoints > 0 ? ` (獎勵+${bonusPoints})` : '');
+            updateScoreDisplay(true);
+            if (consecutiveCorrect > 1) showCombo(consecutiveCorrect);
+            checkButton.disabled = true; setTimeout(() => { generateProblem(); checkButton.disabled = false; }, 900);
+        } else {
+            playSound('wrong');
+            consecutiveCorrect = 0;
+            comboDisplay.textContent = '';
+            feedback.style.color = 'red'; feedback.textContent = '不對喔，再試一次！';
+        }
+    }
+
+    function togglePause() { if (!canUsePause) return; gamePaused = !gamePaused; pauseOverlay.classList.toggle('hidden'); if (gamePaused) { pauseButton.textContent = "▶️ 繼續遊戲"; } else { canUsePause = false; pauseButton.textContent = "✅ 已用完"; pauseButton.disabled = true; } }
+    function skipQuestion() { if (!canUseSkip) return; canUseSkip = false; skipButton.disabled = true; score = Math.max(0, score - 5); feedback.style.color = '#f39c12'; feedback.textContent = '已跳過此題 (-5分)'; updateScoreDisplay(); setTimeout(() => generateProblem(), 800); }
+    function showCombo(count) { comboDisplay.textContent = `COMBO x${count}!`; comboDisplay.style.animation = 'none'; comboDisplay.offsetHeight; comboDisplay.style.animation = 'combo-animation 1s ease-out'; }
+    function createOperatorSelect() { const select = document.createElement('select'); select.innerHTML = `<option value="" disabled selected>&nbsp;</option><option value="+">+</option><option value="-">-</option>`; return select; }
+    function updateScoreDisplay(pop = false) { scoreDisplay.textContent = `分數: ${score}`; if (pop) { scoreDisplay.classList.add('score-pop'); setTimeout(() => scoreDisplay.classList.remove('score-pop'), 200); } }
+    function playSound(soundName) { const sound = document.getElementById(`sound-${soundName}`); if (sound) { sound.currentTime = 0; sound.play().catch(e => {}); } }
 
     // --- 啟動 ---
     initialize();
