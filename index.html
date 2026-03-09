@@ -35,6 +35,7 @@
         #pause-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; color: white; font-size: 3rem; font-weight: bold; z-index: 10; border-radius: 15px;}
         #combo-display { position: absolute; top: 40%; left: 50%; transform: translateX(-50%); font-size: 4rem; font-weight: bold; color: #ff5722; text-shadow: 2px 2px 5px rgba(0,0,0,0.3); opacity: 0; pointer-events: none; animation: combo-animation 1s ease-out; }
         @keyframes combo-animation { 0% { opacity: 1; transform: translateX(-50%) scale(0.5); } 80% { opacity: 1; transform: translateX(-50%) scale(1.2); } 100% { opacity: 0; transform: translateX(-50%) scale(1.2); } }
+        #score-display.score-pop { transform: scale(1.25); color: #f44336; }
     </style>
 </head>
 <body>
@@ -48,6 +49,7 @@
         <hr class="section-divider"><div id="leaderboard-section"><h2>雲端積分排行榜</h2><div id="leaderboard"><p>正在從雲端載入排行榜...</p></div></div>
     </div>
 
+    <!-- *** 已補全此處的 HTML 結構 *** -->
     <div id="game-interface" class="hidden">
         <div class="skills-panel"><button id="pause-button" class="button skill-button" onclick="togglePause()">⏸️ 時間暫停</button><button id="skip-button" class="button skill-button" onclick="skipQuestion()">⏩ 跳過此題</button></div>
         <div class="header-info"><div id="score-display">分數: 0</div><div id="timer-display">時間: 60</div></div>
@@ -118,10 +120,7 @@
 
     function displayLeaderboard(leaderboardData, highlightCurrent = false) {
         const leaderboardDiv = document.getElementById('leaderboard');
-        if (!Array.isArray(leaderboardData)) {
-            leaderboardDiv.innerHTML = '<p style="color: red;">排行榜資料格式錯誤。</p>';
-            return;
-        }
+        if (!Array.isArray(leaderboardData)) { leaderboardDiv.innerHTML = '<p style="color: red;">排行榜資料格式錯誤。</p>'; return; }
         let tableHTML = leaderboardData.length === 0 ? '<p>排行榜上還沒有分數！</p>' : '<table><thead><tr><th>排名</th><th>班別</th><th>學號</th><th>分數</th></tr></thead><tbody>';
         if (leaderboardData.length > 0) {
             leaderboardData.forEach((player, index) => {
@@ -133,7 +132,12 @@
         leaderboardDiv.innerHTML = tableHTML;
     }
 
-    // --- 遊戲主流程 ---
+    // --- *** 已補全所有遊戲邏輯函數 *** ---
+    function showScreen(screen) {
+        [mainMenuScreen, gameInterface, gameOverScreen].forEach(s => s.classList.add('hidden'));
+        if (screen) screen.classList.remove('hidden');
+    }
+
     function initialize() {
         const classes = ['3A', '3B', '3C', '3D', '3E'];
         classes.forEach(c => classSelect.innerHTML += `<option value="${c}">${c}</option>`);
@@ -173,12 +177,6 @@
         saveScoreToCloud();
     }
 
-    function showScreen(screen) {
-        [mainMenuScreen, gameInterface, gameOverScreen].forEach(s => s.classList.add('hidden'));
-        if (screen) screen.classList.remove('hidden');
-    }
-
-    // --- 遊戲核心邏輯 ---
     function generateProblem() {
         let problem = null, attemptCounter = 0;
         while (problem === null && attemptCounter < 500) { problem = tryGenerateProblem(); attemptCounter++; }
