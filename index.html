@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小小數學家：運算符號大挑戰</title>
+    <style>
+        body { font-family: 'Microsoft JhengHei', 'Heiti TC', sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px 0; background-color: #f0f9ff; color: #333; font-size: 1.2rem; }
+        .container { width: 90%; max-width: 600px; background-color: #ffffff; padding: 25px; border-radius: 15px; box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1); text-align: center; position: relative; }
+        .hidden { display: none !important; }
+        h1, h2 { color: #01579b; margin-top: 0; }
+        .instructions { font-size: 1.1rem; color: #555; margin-bottom: 15px; }
+        .button { border: none; padding: 15px 30px; font-size: 1.5rem; border-radius: 10px; cursor: pointer; transition: all 0.3s; margin: 10px; user-select: none; }
+        .button:hover:not(:disabled) { opacity: 0.85; transform: translateY(-2px); }
+        #game-interface { position: relative; }
+        .header-info { display: flex; justify-content: space-around; margin-bottom: 25px; font-weight: bold; font-size: 1.5rem; }
+        .header-info div { background-color: #e3f2fd; padding: 10px 15px; border-radius: 10px; }
+        #problem-container { margin-bottom: 25px; font-size: 2.5rem; font-weight: bold; display: flex; justify-content: center; align-items: center; flex-wrap: wrap; min-height: 80px; }
+        select { font-size: 1.2rem; margin: 8px 10px; border-radius: 5px; border: 2px solid #0288d1; font-family: inherit; padding: 8px; }
+        .section-divider { border: 0; height: 2px; background-color: #eeeeee; margin: 25px 0; }
+        #leaderboard { margin-top: 20px; text-align: left; max-height: 300px; overflow-y: auto; }
+        #leaderboard table { width: 100%; border-collapse: collapse; }
+        #leaderboard th, #leaderboard td { padding: 8px 12px; border: 1px solid #ddd; text-align: center; }
+        #leaderboard th { background-color: #0288d1; color: white; }
+        #leaderboard .current-player { background-color: #fff9c4 !important; font-weight: bold; }
+        .designer-credit { position: fixed; bottom: 10px; right: 15px; font-size: 0.8rem; color: #aaa; }
+        .difficulty-buttons button { color: white; width: 80%; }
+        .difficulty-buttons .level-1 { background-color: #4caf50; }
+        .difficulty-buttons .level-2 { background-color: #ff9800; }
+        .difficulty-buttons .level-3 { background-color: #f44336; }
+        #final-score-message { font-size: 2rem; font-weight: bold; margin: 20px 0; color: #d32f2f; }
+    </style>
+</head>
+<body>
+
+<div id="main-container" class="container">
+    <div id="main-menu-screen">
+        <h1>運算符號大挑戰</h1>
+        <p class="instructions">遊戲玩法：選擇 + 或 - ，使算式成立。</p>
+        <div id="player-identity-section"><h2>第一步：選擇身份</h2><label for="class-select">班別:</label><select id="class-select"></select><label for="student-id-select">學號:</label><select id="student-id-select"></select></div>
+        <div id="difficulty-section" class="difficulty-buttons"><h2>第二步：選擇難度開始遊戲</h2><button class="button level-1" onclick="startGame(1)">難度一</button><button class="button level-2" onclick="startGame(2)">難度二</button><button class="button level-3" onclick="startGame(3)">難度三</button></div>
+        <hr class="section-divider"><div id="leaderboard-section"><h2>雲端積分排行榜</h2><div id="leaderboard"><p>正在從雲端載入排行榜...</p></div></div>
+    </div>
+    <div id="game-interface" class="hidden"></div>
+    <div id="game-over-screen" class="hidden"></div>
+</div>
+<div class="designer-credit">Designed by Miss Lui SY</div>
+<audio id="sound-correct" src="correct.mp3" preload="auto"></audio><audio id="sound-wrong" src="wrong.mp3" preload="auto"></audio><audio id="sound-click" src="click.mp3" preload="auto"></audio>
+
+<script>
+    // --- 重要設定 ---
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzWIU1wmjEQCTx-tmZ7a7qJJphMZrUITf7RATO2va3JVL5FhHlmTI546QGFNc7Roc-V/exec"; 
+
+    // --- DOM 元素 ---
+    const mainMenuScreen = document.getElementById('main-menu-screen'), gameInterface = document.getElementById('game-interface'), gameOverScreen = document.getElementById('game-over-screen');
+    const classSelect = document.getElementById('class-select'), studentIdSelect = document.getElementById('student-id-select');
+    
+    // --- 全域變數 ---
+    let score, currentPlayer = {};
+
+    // --- *** 雲端數據處理 (已重寫) *** ---
+
+    async function fetchLeaderboard() {
+        const leaderboardDiv = document.getElementById('leaderboard');
+        leaderboardDiv.innerHTML = '<p>正在從雲端載入排行榜...</p>';
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒超時
+
+            const response = await fetch(SCRIPT_URL, { signal: controller.signal });
+            clearTimeout(timeoutId); // 成功取得回應，清除超時
+
+            if (!response.ok) {
+                // 如果伺服器回傳了錯誤狀態 (如 404, 500)
+                throw new Error(`伺服器回應錯誤: ${response.status}`);
+            }
+            const data = await response.json();
+            displayLeaderboard(data);
+        } catch (error) {
+            console.error('讀取排行榜失敗:', error);
+            leaderboardDiv.innerHTML = '<p style="color: red; font-weight: bold;">讀取排行榜失敗！<br><span style="font-weight: normal; font-size: 0.9rem;">遊戲仍可進行，但分數無法雲端排名。</span></p>';
+        }
+    }
+
+    async function saveScoreToCloud() {
+        const data = { class: currentPlayer.class, studentId: currentPlayer.studentId, score: score };
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+            
+            // Apps Script 的 POST 請求在跨來源時比較特殊，我們用 fetch 發送，但不期待有意義的回傳值
+            await fetch(SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                body: JSON.stringify(data),
+                headers: { 'Content-Type': 'application/json' },
+                keepalive: true, // 確保頁面跳轉時請求能完成
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+        } catch (error) {
+            console.error('儲存分數請求發送失敗:', error);
+        } finally {
+            // 無論儲存成功與否，都確保遊戲流程能繼續
+            setTimeout(() => {
+                fetchLeaderboard(); // 再次嘗試刷新排行榜
+                showScreen(mainMenuScreen);
+            }, 3000);
+        }
+    }
+
+    function displayLeaderboard(leaderboardData, highlightCurrent = false) {
+        const leaderboardDiv = document.getElementById('leaderboard');
+        if (!Array.isArray(leaderboardData)) {
+            leaderboardDiv.innerHTML = '<p style="color: red;">排行榜資料格式錯誤。</p>';
+            return;
+        }
+        let tableHTML = leaderboardData.length === 0 ? '<p>排行榜上還沒有分數！</p>' : '<table><thead><tr><th>排名</th><th>班別</th><th>學號</th><th>分數</th></tr></thead><tbody>';
+        if (leaderboardData.length > 0) {
+            leaderboardData.forEach((player, index) => {
+                const isCurrentPlayer = highlightCurrent && player.id === currentPlayer.id;
+                tableHTML += `<tr ${isCurrentPlayer ? 'class="current-player"' : ''}><td>${index + 1}</td><td>${player.class}</td><td>${player.studentId}號</td><td>${player.score}</td></tr>`;
+            });
+            tableHTML += '</tbody></table>';
+        }
+        leaderboardDiv.innerHTML = tableHTML;
+    }
+
+    // --- 遊戲主流程 ---
+
+    function initialize() {
+        const classes = ['3A', '3B', '3C', '3D', '3E'];
+        classes.forEach(c => classSelect.innerHTML += `<option value="${c}">${c}</option>`);
+        for (let i = 1; i <= 27; i++) studentIdSelect.innerHTML += `<option value="${i}">${i}號</option>`;
+        document.querySelectorAll('.button').forEach(button => button.addEventListener('click', () => playSound('click')));
+        
+        // 關鍵修正：fetchLeaderboard 是 async，它會去執行，但不會阻塞下面的代碼
+        fetchLeaderboard(); 
+        
+        // 無論排行榜是否成功，都顯示主畫面，讓遊戲可以啟動
+        showScreen(mainMenuScreen); 
+    }
+
+    function startGame(difficulty) {
+        currentPlayer = { class: classSelect.value, studentId: studentIdSelect.value, id: `${classSelect.value}-${studentIdSelect.value}` };
+        // ... (將之前版本的 startGame 函數內容完整複製到此處)
+        score = 0; // ...
+        showScreen(gameInterface);
+        // ...
+    }
+
+    function endGame() {
+        // ... (將之前版本的 endGame 函數內容完整複製到此處)
+        saveScoreToCloud();
+    }
+
+    function showScreen(screen) {
+        [mainMenuScreen, gameInterface, gameOverScreen].forEach(s => s.classList.add('hidden'));
+        if (screen) screen.classList.remove('hidden');
+    }
+
+    function playSound(soundName) {
+        const sound = document.getElementById(`sound-${soundName}`);
+        if (sound) { sound.currentTime = 0; sound.play().catch(e => {}); }
+    }
+    
+    // (請將您之前版本的所有其他遊戲邏輯函數，如 checkAnswer, generateProblem, togglePause, skipQuestion, updateScoreDisplay 等，完整複製貼到此處)
+
+    // --- 啟動 ---
+    initialize();
+</script>
+
+</body>
+</html>
